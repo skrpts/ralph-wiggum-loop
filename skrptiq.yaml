@@ -1,0 +1,56 @@
+# --- Identity ---
+id: "a7f2d91c-3e48-4b5a-9c12-8d4e6f0a1b3c"
+name: "ralph-wiggum-loop"
+display_name: "Ralph Wiggum Loop"
+description: "Autonomous development loop — pick a task, implement, test, commit, repeat until done"
+version: "1.0.0"
+engine: ">=1.0.0"
+
+# --- Attribution ---
+author:
+  name: "skrptiq"
+  url: "https://hub.skrptiq.ai"
+
+licence: "MIT"
+repository: "https://github.com/skrpts/ralph-wiggum-loop"
+
+# --- Discovery (Hub) ---
+category: "developer"
+tags:
+  - "autonomous"
+  - "development"
+  - "testing"
+  - "loops"
+  - "claude-code"
+
+# --- Security & Access ---
+requires:
+  services:
+    - "llm-service"
+  permissions:
+    - "filesystem:read"
+    - "filesystem:write"
+    - "shell:execute"
+  data_handling:
+    - "source-code"
+
+# --- Loops ---
+loops:
+  - id: "dev-cycle"
+    mode: "until_pass"
+    steps:
+      - "task-selection"
+      - "implementation"
+      - "test-verification"
+    verifier: "test-verification"
+    maxIterations: 10
+    freshContextPerIteration: true
+
+# --- Contents ---
+contents:
+  skills: 4
+  prompts: 4
+  workflows: 1
+  services: 1
+  assets: 3
+  total: 13
