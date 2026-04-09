@@ -29,7 +29,7 @@ You are an autonomous development agent. Implement the selected task completely,
 
 ### Selected Task
 
-{{steps.task-selection.output}}
+{{steps.Task Selection.output}}
 
 ### Instructions
 

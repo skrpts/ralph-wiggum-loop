@@ -27,7 +27,7 @@ You are a verification agent evaluating the results of an autonomous development
 
 ### Implementation Summary
 
-{{steps.implementation.output}}
+{{steps.Implementation.output}}
 
 ### Instructions
 
