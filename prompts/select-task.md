@@ -4,6 +4,37 @@ id: select-task
 title: Select Task
 description: "Reads the progress tracker and selects the next task to implement"
 tags: [Production, Developer, Planning]
+inputs:
+  project_path:
+    label: "Project Path"
+    description: "Path to the project root directory"
+    example: "/home/user/my-app"
+    required: true
+    type: text
+  test_command:
+    label: "Test Command"
+    description: "The command to run the test suite"
+    example: "npm test"
+    required: true
+    type: text
+  build_command:
+    label: "Build Command"
+    description: "The command to build the project"
+    example: "npm run build"
+    required: true
+    type: text
+  conventions:
+    label: "Coding Conventions"
+    description: "Project-specific coding conventions and style rules"
+    example: "TypeScript strict, ESM imports, vitest for tests"
+    required: true
+    type: text
+  task_list:
+    label: "Task List"
+    description: "Tasks to complete — as a markdown checklist or description"
+    example: "- [ ] Add input validation\n- [ ] Write integration tests\n- [ ] Update API docs"
+    required: true
+    type: text
 connections:
   - target: task-selection
     type: derived_from

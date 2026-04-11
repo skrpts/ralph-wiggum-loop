@@ -4,6 +4,19 @@ id: verify-tests
 title: Verify Tests
 description: "Evaluates implementation correctness and decides whether the loop should continue, pass, or fail"
 tags: [Production, Developer, Quality]
+inputs:
+  project_path:
+    label: "Project Path"
+    description: "Path to the project root directory"
+    example: "/home/user/my-app"
+    required: true
+    type: text
+  test_command:
+    label: "Test Command"
+    description: "The command to run the test suite"
+    example: "npm test"
+    required: true
+    type: text
 connections:
   - target: test-verification
     type: derived_from

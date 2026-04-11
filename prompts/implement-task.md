@@ -4,6 +4,31 @@ id: implement-task
 title: Implement Task
 description: "Implements the selected task — writes code, runs tests, commits"
 tags: [Production, Developer, Code]
+inputs:
+  project_path:
+    label: "Project Path"
+    description: "Path to the project root directory"
+    example: "/home/user/my-app"
+    required: true
+    type: text
+  test_command:
+    label: "Test Command"
+    description: "The command to run the test suite"
+    example: "npm test"
+    required: true
+    type: text
+  build_command:
+    label: "Build Command"
+    description: "The command to build the project"
+    example: "npm run build"
+    required: true
+    type: text
+  conventions:
+    label: "Coding Conventions"
+    description: "Project-specific coding conventions and style rules"
+    example: "TypeScript strict, ESM imports, vitest for tests"
+    required: true
+    type: text
 connections:
   - target: implementation
     type: derived_from
