@@ -1,6 +1,8 @@
 # Scan, sign, and release a skrpt package on version tag push.
 #
-# Pipeline: tag push → checkout → scan → write security block → sign → zip → release → POST report
+# Pipeline: tag push → checkout → fetch scanner → scan → write security block → sign → zip → release → POST report
+#
+# Scanner is fetched from the Hub repo at runtime (GH#292) — always uses the latest version.
 #
 # Requires org-level secrets:
 #   SIGNING_PRIVATE_KEY  — Ed25519 PEM for signing
@@ -34,240 +36,49 @@ jobs:
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           echo "slug=$(basename "$GITHUB_REPOSITORY")" >> "$GITHUB_OUTPUT"
 
+      - name: Fetch scanner from Hub repo
+        env:
+          SCANNER_REPO_TOKEN: ${{ secrets.SCANNER_REPO_TOKEN }}
+        run: |
+          curl -sf \
+            -H "Authorization: Bearer ${SCANNER_REPO_TOKEN}" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/skrptiq/skrptiq-hub/contents/scripts/scanning/scan-skrpt.mjs?ref=main" \
+            -o /tmp/scan-skrpt.mjs
+          SCANNER_VER=$(grep 'SCANNER_VERSION' /tmp/scan-skrpt.mjs | head -1 | grep -o "'[^']*'" | tr -d "'")
+          echo "Using scanner v${SCANNER_VER}"
+
       - name: Scan the skrpt
         id: scan
         run: |
+          # Run the scanner — exit code: 0=pass, 1=warn, 2=fail, 3=error
+          node /tmp/scan-skrpt.mjs . --json > /tmp/scan-result.json 2>&1 || true
+
+          # Extract and display results
           node -e '
-          // ── Inline scanner v2.0.0 ──
-          // Compact version for GitHub Actions. Full version: scripts/scanning/scan-skrpt.mjs
-          // Three passes: syntactic → structural → security
-          const { readFileSync, readdirSync, existsSync } = require("node:fs");
-          const { join, relative, extname } = require("node:path");
-
-          const SCANNER_VERSION = "2.0.0";
-          const SEMVER_RE = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$/;
-          const NODE_DIRS = {skills:"skill",prompts:"prompt",workflows:"workflow",services:"service",sources:"source",documents:"document",assets:"asset"};
-
-          // Minimal YAML parser (handles our manifest and frontmatter subset)
-          function parseYaml(text) {
-            const lines = text.split("\n");
-            return parseBlock(lines, 0, 0).value;
+          const r = JSON.parse(require("fs").readFileSync("/tmp/scan-result.json","utf-8"));
+          console.log("[1/3] Syntactic: " + r.summary.syntactic.status.toUpperCase());
+          if (r.summary.syntactic.errors) r.summary.syntactic.errors.forEach(e => console.log("  FAIL  " + e));
+          if (r.summary.syntactic.warnings) r.summary.syntactic.warnings.forEach(w => console.log("  WARN  " + w));
+          console.log("[2/3] Structural: " + r.summary.structural.status.toUpperCase());
+          if (r.summary.structural.errors) r.summary.structural.errors.forEach(e => console.log("  FAIL  " + e));
+          if (r.summary.structural.warnings) r.summary.structural.warnings.forEach(w => console.log("  WARN  " + w));
+          const secStatus = r.summary.undeclared && r.summary.undeclared.length > 0 ? "WARN" : r.findings && r.findings.some(f => f.severity === "fail") ? "FAIL" : "PASS";
+          console.log("[3/3] Security: " + secStatus);
+          if (r.summary.undeclared) r.summary.undeclared.forEach(u => console.log("  " + u));
+          if (r.summary.warnings) r.summary.warnings.forEach(w => console.log("  " + w));
+          console.log("Overall: " + r.slug + " — " + r.status.toUpperCase());
+          if (r.status === "fail") {
+            if (r.summary.syntactic.errors) r.summary.syntactic.errors.forEach(e => console.log("::error::" + e));
+            if (r.summary.structural.errors) r.summary.structural.errors.forEach(e => console.log("::error::" + e));
+            if (r.summary.warnings) r.summary.warnings.forEach(w => console.log("::error::" + w));
+            process.exit(1);
           }
-          function parseBlock(lines, start, baseIndent) {
-            const result = {}; let i = start;
-            while (i < lines.length) {
-              const line = lines[i];
-              if (line.trim() === "" || line.trim().startsWith("#")) { i++; continue; }
-              const indent = line.search(/\S/);
-              if (indent < baseIndent) break;
-              if (line.trim().startsWith("- ")) {
-                const arr = [];
-                while (i < lines.length) {
-                  const l = lines[i];
-                  if (l.trim() === "" || l.trim().startsWith("#")) { i++; continue; }
-                  if (l.search(/\S/) < baseIndent || !l.trim().startsWith("- ")) break;
-                  arr.push(parseScalar(l.trim().slice(2).trim())); i++;
-                }
-                return { value: arr, end: i };
-              }
-              const ci = line.indexOf(":");
-              if (ci === -1) { i++; continue; }
-              const key = line.slice(indent, ci).trim();
-              const after = line.slice(ci + 1).trim();
-              if (after === "" || after.startsWith("#")) {
-                const ne = findNE(lines, i + 1);
-                if (ne < lines.length && lines[ne].trim().startsWith("- ")) {
-                  const ni = lines[ne].search(/\S/); const arr = []; let j = ne;
-                  while (j < lines.length) {
-                    const l = lines[j];
-                    if (l.trim() === "" || l.trim().startsWith("#")) { j++; continue; }
-                    if (l.search(/\S/) < ni || !l.trim().startsWith("- ")) break;
-                    const iv = l.trim().slice(2).trim();
-                    if (iv.includes(":") && !iv.startsWith("\"") && !iv.startsWith("'"'"'")) {
-                      const obj = {}; obj[iv.split(":")[0].trim()] = parseScalar(iv.split(":").slice(1).join(":").trim()); j++;
-                      while (j < lines.length) { const nl = lines[j]; if (nl.trim() === "") { j++; continue; } if (nl.search(/\S/) <= ni) break; const nc = nl.indexOf(":"); if (nc !== -1) obj[nl.slice(nl.search(/\S/), nc).trim()] = parseScalar(nl.slice(nc+1).trim()); j++; }
-                      arr.push(obj);
-                    } else { arr.push(parseScalar(iv)); j++; }
-                  }
-                  result[key] = arr; i = j;
-                } else if (ne < lines.length) {
-                  const ni = lines[ne].search(/\S/);
-                  if (ni > indent) { const sub = parseBlock(lines, ne, ni); result[key] = sub.value; i = sub.end; }
-                  else { result[key] = null; i++; }
-                } else { result[key] = null; i++; }
-              } else if (after.startsWith("[")) {
-                const m = after.match(/^\[(.*)\]/);
-                result[key] = m ? m[1].split(",").map(s => parseScalar(s.trim())).filter(s => s !== "") : parseScalar(after);
-                i++;
-              } else { result[key] = parseScalar(after); i++; }
-            }
-            return { value: result, end: i };
+          if (r.status === "warn") {
+            if (r.summary.syntactic.warnings) r.summary.syntactic.warnings.forEach(w => console.log("::warning::" + w));
+            if (r.summary.structural.warnings) r.summary.structural.warnings.forEach(w => console.log("::warning::" + w));
+            if (r.summary.warnings) r.summary.warnings.forEach(w => console.log("::warning::" + w));
           }
-          function findNE(lines, s) { while (s < lines.length && (lines[s].trim() === "" || lines[s].trim().startsWith("#"))) s++; return s; }
-          function parseScalar(s) {
-            if (s === "" || s === "null" || s === "~") return null;
-            if (s === "true") return true; if (s === "false") return false;
-            if (s.startsWith("\"") && s.endsWith("\"")) return s.slice(1,-1);
-            if (s.startsWith("'"'"'") && s.endsWith("'"'"'")) return s.slice(1,-1);
-            if (/^-?\d+$/.test(s)) return parseInt(s,10);
-            const ci = s.indexOf(" #"); if (ci !== -1) return parseScalar(s.slice(0,ci).trim());
-            return s;
-          }
-          function ensureArray(v) { return Array.isArray(v) ? v.filter(x => x !== null) : []; }
-
-          // Collect files
-          function collectFiles(d, b) {
-            b = b || d; const entries = readdirSync(d, {withFileTypes:true}); const files = [];
-            for (const e of entries) { const fp = join(d, e.name); if (e.name.startsWith(".") || e.name === "node_modules") continue; if (e.isDirectory()) files.push(...collectFiles(fp, b)); else if (e.isFile()) files.push(relative(b, fp)); }
-            return files;
-          }
-
-          const dir = ".";
-
-          // ── Pass 1: Syntactic ──
-          function validateSyntactic() {
-            const errors = [], warnings = [];
-            if (!existsSync(join(dir, "skrptiq.yaml"))) return { status: "fail", errors: ["skrptiq.yaml not found"], warnings };
-            let m;
-            try { m = parseYaml(readFileSync(join(dir, "skrptiq.yaml"), "utf-8")); } catch (e) { return { status: "fail", errors: ["skrptiq.yaml parse error: " + e.message], warnings }; }
-            if (!m || typeof m !== "object") return { status: "fail", errors: ["skrptiq.yaml is empty or invalid"], warnings };
-            for (const f of ["name","version","description","author","licence"]) { if (!m[f]) errors.push("Missing required field: " + f); }
-            if (m.version && typeof m.version === "string" && !SEMVER_RE.test(m.version)) errors.push("Invalid semver: " + m.version);
-            if (typeof m.description === "string" && m.description.length > 500) errors.push("Description exceeds 500 chars");
-            if (!m.contents || typeof m.contents !== "object") errors.push("Missing required block: contents");
-            else { const vals = Object.entries(m.contents).filter(([k])=>k!=="total").map(([,v])=>typeof v==="number"?v:0); if (!vals.some(v=>v>0)) errors.push("contents must have at least one type > 0"); }
-            if (m.integrity) errors.push("integrity block must not be in source");
-            if (m.trust) errors.push("trust block must not be in source");
-            if (m.requires && typeof m.requires === "object") {
-              if (m.requires.services !== undefined && !Array.isArray(m.requires.services)) warnings.push("requires.services must be an array");
-              else if (Array.isArray(m.requires.services)) for (const s of m.requires.services) { if (s !== null && s !== "" && typeof s !== "string") warnings.push("requires.services non-string: " + JSON.stringify(s)); }
-              if (m.requires.permissions !== undefined && !Array.isArray(m.requires.permissions)) warnings.push("requires.permissions must be an array");
-              else if (Array.isArray(m.requires.permissions)) for (const p of m.requires.permissions) { if (p !== null && p !== "" && typeof p !== "string") warnings.push("requires.permissions non-string"); else if (typeof p === "string" && !p.includes(":")) warnings.push("requires.permissions invalid: " + p); }
-              if (m.requires.data_handling !== undefined && !Array.isArray(m.requires.data_handling)) warnings.push("requires.data_handling must be an array");
-              else if (Array.isArray(m.requires.data_handling)) for (const d of m.requires.data_handling) { if (d !== null && d !== "" && typeof d !== "string") warnings.push("requires.data_handling non-string: " + JSON.stringify(d)); }
-            }
-            return { status: errors.length > 0 ? "fail" : warnings.length > 0 ? "warn" : "pass", errors, warnings };
-          }
-
-          // ── Pass 2: Structural ──
-          function validateStructural(manifest) {
-            const errors = [], warnings = [], infos = [];
-            if (!manifest?.contents) return { status: "fail", errors: ["No contents block"], warnings, infos };
-            const contents = manifest.contents;
-            const allIds = new Map(), localIds = new Set(), edgeRefs = [];
-            const hasDeps = !!(ensureArray(manifest.requires?.services).length > 0 || ensureArray(manifest.requires?.permissions).length > 0);
-            for (const [dn, expType] of Object.entries(NODE_DIRS)) {
-              const count = typeof contents[dn] === "number" ? contents[dn] : 0;
-              const dp = join(dir, dn);
-              if (count > 0 && !existsSync(dp)) { warnings.push(dn + "/ missing but contents declares " + count); continue; }
-              if (!existsSync(dp)) continue;
-              let files; try { files = readdirSync(dp).filter(f=>!f.startsWith(".")); } catch { warnings.push("Cannot read " + dn + "/"); continue; }
-              const mds = files.filter(f=>extname(f).toLowerCase()===".md");
-              if (count > 0 && mds.length !== count) infos.push(dn + ": declares " + count + " but found " + mds.length);
-              else if (count === 0 && mds.length > 0) warnings.push(dn + "/ has " + mds.length + " files but contents declares 0");
-              for (const nf of mds) {
-                const fp = dn + "/" + nf; let content;
-                try { content = readFileSync(join(dp, nf), "utf-8"); } catch { warnings.push("Cannot read " + fp); continue; }
-                const fmm = content.match(/^---\n([\s\S]*?)\n---/);
-                if (!fmm) { warnings.push(fp + ": missing frontmatter"); continue; }
-                let fm; try { fm = parseYaml(fmm[1]); } catch { warnings.push(fp + ": invalid frontmatter"); continue; }
-                if (!fm.type) warnings.push(fp + ": missing type");
-                if (!fm.id) warnings.push(fp + ": missing id");
-                if (!fm.title) warnings.push(fp + ": missing title");
-                if (fm.type && fm.type !== expType) warnings.push(fp + ": type " + fm.type + " != " + expType);
-                if (fm.id) { localIds.add(fm.id); if (allIds.has(fm.id)) errors.push("Duplicate ID: " + fm.id + " in " + fp + " and " + allIds.get(fm.id)); else allIds.set(fm.id, fp); }
-                if (fm.connections && Array.isArray(fm.connections)) for (const c of fm.connections) { if (c && typeof c === "object" && c.target && c.type === "uses") edgeRefs.push({target:c.target,file:fp}); }
-              }
-              const orphans = files.filter(f=>extname(f).toLowerCase()!==".md"&&f!==".DS_Store");
-              if (orphans.length > 0) warnings.push(dn + "/ has non-markdown files: " + orphans.join(", "));
-            }
-            if (existsSync(join(dir, "tags.yaml"))) { try { parseYaml(readFileSync(join(dir, "tags.yaml"), "utf-8")); } catch (e) { warnings.push("tags.yaml parse error: " + e.message); } }
-            for (const ref of edgeRefs) { if (!localIds.has(ref.target)) { if (hasDeps) infos.push(ref.file + ": ref " + ref.target + " not local (deps declared)"); else warnings.push(ref.file + ": ref " + ref.target + " not local, no deps"); } }
-            return { status: errors.length > 0 ? "fail" : warnings.length > 0 ? "warn" : "pass", errors, warnings, infos };
-          }
-
-          const syntactic = validateSyntactic();
-          let manifest;
-          try { manifest = parseYaml(readFileSync(join(dir, "skrptiq.yaml"), "utf-8")); } catch { manifest = {}; }
-          const structural = validateStructural(manifest);
-          const requires = { services: ensureArray(manifest.requires?.services), permissions: ensureArray(manifest.requires?.permissions), data_handling: ensureArray(manifest.requires?.data_handling) };
-
-          // ── Pass 3: Security ──
-          const URL_RE = /https?:\/\/[^\s"'"'"'\x60)\]>]+/g;
-          const IGNORE_DOMAINS = new Set(["hub.skrptiq.ai","github.com","example.com","example.org"]);
-          const SVC_DOMAINS = {"anthropic-claude":["api.anthropic.com"],"openai-gpt4":["api.openai.com"],"github-mcp":["api.github.com"]};
-          const SVC_PERMS = {"github-mcp":["filesystem:read"]};
-          const ENV_RE = /\{\{?\s*([A-Z][A-Z0-9_]+)\s*\}?\}/g;
-          const SKIP_ENVS = new Set(["NODE_ENV","PATH","HOME","CI","GITHUB_REF_NAME"]);
-          const HARDCODED = [/sk-[A-Za-z0-9]{20,}/g, /sk-ant-[A-Za-z0-9]{20,}/g, /ghp_[A-Za-z0-9]{36,}/g, /gho_[A-Za-z0-9]{36,}/g];
-          const SHELL_RE = [/\b(?:exec|spawn|system|popen)\s*\(/gi, /\b(?:child_process|shelljs)\b/gi];
-          const FS_RE = [/\bfs\.(read|write|unlink|mkdir|rmdir|access|stat|chmod)/gi, /\bget_file_contents\b/gi];
-          const PII_RE = [/\b(?:subscriber|customer|user|contact)\s+(?:data|information|details|records|profiles?)\b/gi, /\b(?:personal(?:ly)?\s+identif(?:iable|ying)|PII)\b/gi, /\b(?:first[_\s]?name|last[_\s]?name|email\s+address|phone\s+number)\b/gi, /\{\{(?:first_name|last_name|email|phone|company|address)\}\}/gi, /\b(?:demographic|engagement\s+history|purchase\s+behavio?ur)\b/gi];
-          const COMP_RE = [/\bGDPR\b/g, /\bCAN-?SPAM\b/gi, /\bHIPAA\b/g, /\bCCPA\b/g];
-
-          const findings = [];
-          const textExts = new Set([".md",".yaml",".yml",".json",".txt",".html",".css",".js",".ts"]);
-          for (const f of collectFiles(dir)) {
-            if (f === "skrptiq.yaml" || f === "tags.yaml") continue;
-            if (!textExts.has(extname(f).toLowerCase())) continue;
-            const content = readFileSync(join(dir, f), "utf-8");
-            const rp = f.split(/[\\/]/).join("/");
-            const lines = content.split("\n");
-            const fm = content.match(/^---\n([\s\S]*?)\n---/);
-            if (fm) { try { const y = parseYaml(fm[1]); if (y?.connections) for (const c of y.connections) { if (c && typeof c === "object" && (c.type === "runs_on" || c.type === "requires")) findings.push({category:"services",detected:c.target,declared:false,severity:"warn",file:rp,line:1,evidence:"connection: "+c.target,rule:"frontmatter-service"}); } if (y?.type === "service" && y?.metadata?.env_var) findings.push({category:"credentials",detected:"env:"+y.metadata.env_var,declared:false,severity:"info",file:rp,line:1,evidence:"service requires "+y.metadata.env_var,rule:"service-env-var"}); } catch {} }
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i]; const ln = i + 1;
-              const isBlockquote = line.trimStart().startsWith(">"); for (const m of line.matchAll(URL_RE)) { try { const u = new URL(m[0].replace(/[.,;:!?)]+$/,"")); if (IGNORE_DOMAINS.has(u.hostname)) continue; const bb = (line.slice(0,m.index).match(/`/g)||[]).length; if (isBlockquote || bb%2===1) continue; findings.push({category:"permissions",detected:"network:"+u.hostname,declared:false,severity:"warn",file:rp,line:ln,evidence:m[0].slice(0,80),rule:"external-url"}); } catch {} }
-              for (const m of line.matchAll(ENV_RE)) { if (!SKIP_ENVS.has(m[1])) findings.push({category:"credentials",detected:"env:"+m[1],declared:false,severity:"info",file:rp,line:ln,evidence:m[0],rule:"credential-env-var"}); }
-              for (const re of HARDCODED) { re.lastIndex=0; for (const m of line.matchAll(re)) findings.push({category:"credentials",detected:"hardcoded-secret",declared:false,severity:"fail",file:rp,line:ln,evidence:m[0].slice(0,40)+"...",rule:"hardcoded-secret"}); }
-              for (const re of SHELL_RE) { re.lastIndex=0; for (const m of line.matchAll(re)) findings.push({category:"permissions",detected:"shell:execute",declared:false,severity:"fail",file:rp,line:ln,evidence:m[0].slice(0,80),rule:"shell-pattern"}); }
-              for (const re of FS_RE) { re.lastIndex=0; for (const m of line.matchAll(re)) findings.push({category:"permissions",detected:"filesystem:read",declared:false,severity:"warn",file:rp,line:ln,evidence:m[0],rule:"fs-access"}); }
-              for (const re of PII_RE) { re.lastIndex=0; for (const m of line.matchAll(re)) findings.push({category:"data_handling",detected:"pii",declared:false,severity:"warn",file:rp,line:ln,evidence:m[0],rule:"pii-pattern"}); }
-              for (const re of COMP_RE) { re.lastIndex=0; for (const m of line.matchAll(re)) findings.push({category:"compliance",detected:m[0].toUpperCase(),declared:false,severity:"info",file:rp,line:ln,evidence:line.trim().slice(0,100),rule:"compliance-ref"}); }
-            }
-          }
-
-          // Resolve
-          const dSvc = new Set(requires.services), dPerm = new Set(requires.permissions), dDH = new Set(requires.data_handling);
-          const implDom = new Set(), implPerm = new Set();
-          for (const s of requires.services) { (SVC_DOMAINS[s]||[]).forEach(d=>implDom.add(d)); (SVC_PERMS[s]||[]).forEach(p=>implPerm.add(p)); }
-          for (const f of findings) {
-            if (f.category==="services") { f.declared=dSvc.has(f.detected); if(f.declared)f.severity="info"; }
-            else if (f.category==="permissions") { f.declared=dPerm.has(f.detected); if(!f.declared&&f.detected.startsWith("network:")) { if(implDom.has(f.detected.slice(8)))f.declared=true; } if(!f.declared&&implPerm.has(f.detected))f.declared=true; if(f.declared&&f.severity==="warn")f.severity="info"; }
-            else if (f.category==="data_handling") { f.declared=dDH.has(f.detected); if(f.declared)f.severity="info"; }
-          }
-
-          // Build summary
-          const seen = new Map();
-          for (const f of findings) { const k=f.category+":"+f.detected; if(!seen.has(k)||f.severity==="fail")seen.set(k,f); }
-          const unique = [...seen.values()];
-          const detected = {
-            services:[...new Set(unique.filter(f=>f.category==="services").map(f=>f.detected))],
-            permissions:[...new Set(unique.filter(f=>f.category==="permissions").map(f=>f.detected))],
-            data_handling:[...new Set(unique.filter(f=>f.category==="data_handling").map(f=>f.detected))],
-          };
-          const declSet = new Set(findings.filter(f=>f.declared).map(f=>f.category+":"+f.detected));
-          const undeclared = [];
-          for (const s of detected.services) if(!declSet.has("services:"+s)) undeclared.push("services:"+s);
-          for (const p of detected.permissions) if(!declSet.has("permissions:"+p)) undeclared.push("permissions:"+p);
-          for (const d of detected.data_handling) if(!declSet.has("data_handling:"+d)) undeclared.push("data_handling:"+d);
-          const secWarnings = [];
-          if (findings.some(f=>f.rule==="hardcoded-secret")) secWarnings.push("Contains hardcoded credentials");
-          for (const u of undeclared.slice(0,4)) { const [c,v]=u.split(":"); secWarnings.push("Detected "+v+" but not declared in requires."+c.replace("_"," ")); }
-          let secStatus = "pass"; if(undeclared.length>0) secStatus="warn"; if(findings.some(f=>f.severity==="fail")) secStatus="fail";
-
-          // Combine: worst of all three
-          function worst(...ss) { if(ss.includes("fail"))return"fail"; if(ss.includes("warn"))return"warn"; return"pass"; }
-          const overallStatus = worst(syntactic.status, structural.status, secStatus);
-
-          const result = { slug: manifest.name||"(unknown)", scanner_version: SCANNER_VERSION, status: overallStatus, summary: { status: overallStatus, detected, undeclared, warnings: secWarnings.slice(0,5), syntactic, structural }, findings };
-          require("fs").writeFileSync("/tmp/scan-result.json", JSON.stringify(result, null, 2));
-          console.log("[1/3] Syntactic: " + syntactic.status.toUpperCase() + (syntactic.errors.length ? " (" + syntactic.errors.length + " errors)" : ""));
-          console.log("[2/3] Structural: " + structural.status.toUpperCase() + (structural.errors.length ? " (" + structural.errors.length + " errors)" : ""));
-          console.log("[3/3] Security: " + secStatus.toUpperCase() + (undeclared.length ? " (" + undeclared.length + " undeclared)" : ""));
-          console.log("Overall: " + result.slug + " — " + overallStatus.toUpperCase());
-          if (overallStatus === "fail") { syntactic.errors.forEach(e => console.log("::error::" + e)); structural.errors.forEach(e => console.log("::error::" + e)); secWarnings.forEach(w => console.log("::error::" + w)); process.exit(1); }
-          if (overallStatus === "warn") { syntactic.warnings.forEach(w => console.log("::warning::" + w)); structural.warnings.forEach(w => console.log("::warning::" + w)); secWarnings.forEach(w => console.log("::warning::" + w)); }
           '
 
           STATUS=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/scan-result.json','utf-8')).status)")
@@ -288,11 +99,11 @@ jobs:
           sec += "  syntactic: \"" + scan.summary.syntactic.status + "\"\n";
           sec += "  structural: \"" + scan.summary.structural.status + "\"\n";
           sec += "  detected:\n";
-          sec += "    services: [" + scan.summary.detected.services.map(s=>"\""+s+"\"").join(", ") + "]\n";
-          sec += "    permissions: [" + scan.summary.detected.permissions.map(s=>"\""+s+"\"").join(", ") + "]\n";
-          sec += "    data_handling: [" + scan.summary.detected.data_handling.map(s=>"\""+s+"\"").join(", ") + "]\n";
-          sec += "  undeclared: [" + scan.summary.undeclared.map(s=>"\""+s+"\"").join(", ") + "]\n";
-          sec += "  warnings: [" + scan.summary.warnings.map(s=>"\""+s.replace(/"/g,"\\\"")+"\"").join(", ") + "]\n";
+          sec += "    services: [" + (scan.summary.detected.services||[]).map(s=>"\""+s+"\"").join(", ") + "]\n";
+          sec += "    permissions: [" + (scan.summary.detected.permissions||[]).map(s=>"\""+s+"\"").join(", ") + "]\n";
+          sec += "    data_handling: [" + (scan.summary.detected.data_handling||[]).map(s=>"\""+s+"\"").join(", ") + "]\n";
+          sec += "  undeclared: [" + (scan.summary.undeclared||[]).map(s=>"\""+s+"\"").join(", ") + "]\n";
+          sec += "  warnings: [" + (scan.summary.warnings||[]).map(s=>"\""+s.replace(/"/g,"\\\"")+"\"").join(", ") + "]\n";
           sec += "  report_url: \"https://hub.skrptiq.ai/skrpts/" + scan.slug + "/security\"\n";
           writeFileSync("skrptiq.yaml", manifest + sec);
           console.log("Security block written: " + scan.status);
