@@ -30,10 +30,8 @@ execution:
     step_type: "synthesis"
   - skill: "implementation"
     step_type: "generation"
-    input_from: "task-selection"
   - skill: "test-verification"
     step_type: "validation"
-    input_from: "implementation"
   - skill: "completion-report"
     step_type: "synthesis"
 ---
