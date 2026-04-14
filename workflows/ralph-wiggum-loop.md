@@ -25,6 +25,22 @@ metadata:
   estimated_duration: "10-60 minutes"
   trigger: manual
   loop_modes: ["until_pass"]
+loops:
+  - id: "dev-cycle"
+    mode: "until_pass"
+    steps:
+      - "task-selection"
+      - "implementation"
+      - "test-verification"
+    verifier: "test-verification"
+    maxIterations: 10
+    freshContextPerIteration: true
+output_step: "completion-report"
+composite_steps:
+  - "task-selection"
+  - "implementation"
+  - "test-verification"
+  - "completion-report"
 execution:
   - skill: "task-selection"
     step_type: "synthesis"

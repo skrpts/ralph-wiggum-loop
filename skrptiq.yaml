@@ -3,7 +3,7 @@ id: "a7f2d91c-3e48-4b5a-9c12-8d4e6f0a1b3c"
 name: "ralph-wiggum-loop"
 display_name: "Ralph Wiggum Loop"
 description: "Autonomous development loop — pick a task, implement, test, commit, repeat until done"
-version: "1.0.6"
+version: "1.0.7"
 engine: ">=1.0.0"
 
 # --- Attribution ---
@@ -33,26 +33,6 @@ requires:
     - "shell:execute"
   data_handling:
     - "source-code"
-
-# --- Loops ---
-loops:
-  - id: "dev-cycle"
-    mode: "until_pass"
-    steps:
-      - "task-selection"
-      - "implementation"
-      - "test-verification"
-    verifier: "test-verification"
-    maxIterations: 10
-    freshContextPerIteration: true
-
-# --- Output ---
-output_step: "completion-report"
-composite_steps:
-  - "task-selection"
-  - "implementation"
-  - "test-verification"
-  - "completion-report"
 
 # --- Contents ---
 contents:
