@@ -43,12 +43,16 @@ composite_steps:
   - "completion-report"
 execution:
   - skill: "task-selection"
+    prompt: "select-task"
     step_type: "synthesis"
   - skill: "implementation"
+    prompt: "implement-task"
     step_type: "generation"
   - skill: "test-verification"
+    prompt: "verify-tests"
     step_type: "validation"
   - skill: "completion-report"
+    prompt: "report-completion"
     step_type: "synthesis"
 ---
 
