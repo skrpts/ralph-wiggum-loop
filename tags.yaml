@@ -1,0 +1,19 @@
+- id: "autonomous"
+  title: "Autonomous"
+  description: "Autonomous workflows and tools"
+
+- id: "development"
+  title: "Development"
+  description: "Development workflows and tools"
+
+- id: "testing"
+  title: "Testing"
+  description: "Testing workflows and tools"
+
+- id: "loops"
+  title: "Loops"
+  description: "Loops workflows and tools"
+
+- id: "claude-code"
+  title: "Claude Code"
+  description: "Claude Code workflows and tools"
