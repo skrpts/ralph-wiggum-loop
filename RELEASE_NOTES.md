@@ -1,4 +1,4 @@
 # Release Notes
 
-## v1.0.12
-Release notes unavailable for this version.
+## v1.0.14
+Initial catalogue release with full structural and content-quality validation. All scanner checks pass.
