@@ -1,9 +1,9 @@
 # --- Identity ---
-id: "a7f2d91c-3e48-4b5a-9c12-8d4e6f0a1b3c"
+id: "65e9ba39-7fe9-4481-ad78-f7cd03c4fe33"
 name: "ralph-wiggum-loop"
 display_name: "Ralph Wiggum Loop"
 description: "Autonomous development loop — pick a task, implement, test, commit, repeat until done"
-version: "1.0.20"
+version: "1.0.21"
 engine: ">=0.1.0"
 
 # --- Attribution ---
