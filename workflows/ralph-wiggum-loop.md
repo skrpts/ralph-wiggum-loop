@@ -45,15 +45,19 @@ execution:
   - skill: "task-selection"
     prompt: "select-task"
     step_type: "synthesis"
+    output: { name: "selected_task", type: "text" }
   - skill: "implementation"
     prompt: "implement-task"
     step_type: "generation"
+    output: { name: "implementation", type: "text" }
   - skill: "test-verification"
     prompt: "verify-tests"
     step_type: "validation"
+    output: { name: "test_results", type: "decision" }
   - skill: "completion-report"
     prompt: "report-completion"
     step_type: "synthesis"
+    output: { name: "completion_report", type: "text" }
 ---
 
 ## Overview

@@ -3,7 +3,7 @@ id: "65e9ba39-7fe9-4481-ad78-f7cd03c4fe33"
 name: "ralph-wiggum-loop"
 display_name: "Ralph Wiggum Loop"
 description: "Autonomous development loop — pick a task, implement, test, commit, repeat until done"
-version: "1.0.21"
+version: "1.0.22"
 engine: ">=0.1.0"
 
 # --- Attribution ---
@@ -50,3 +50,17 @@ contents:
   documents: 0
   assets: 3
   total: 12
+
+security:
+  status: "pass"
+  scanned_at: "2026-07-02T19:34:05.519Z"
+  scanner_version: "3.3.0"
+  syntactic: "pass"
+  structural: "pass"
+  detected:
+    services: ["llm-service"]
+    permissions: []
+    data_handling: []
+  undeclared: []
+  warnings: []
+  report_url: "https://hub.skrptiq.ai/skrpts/ralph-wiggum-loop/security"
