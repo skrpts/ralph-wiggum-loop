@@ -43,7 +43,7 @@ metadata:
 Tasks should be:
 
 - **Specific.** "Add JWT authentication middleware to the Express app" — not "add auth".
-- **Testable.** The verifier needs a way to confirm the task is done. If tests exist, they should cover the task's behaviour.
+- **Testable.** The verifier needs a way to confirm the task is done. If tests exist, they should cover the task's behavior.
 - **Independent where possible.** Tasks that depend on each other should be listed in dependency order, but each task should be completable in a single iteration.
 - **Right-sized.** One task = one meaningful unit of work. A task that takes 3 iterations is too big. A task that's done in 10 lines is too small — batch it with related work.
 

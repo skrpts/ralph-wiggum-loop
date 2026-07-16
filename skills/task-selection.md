@@ -21,7 +21,7 @@ Reads a progress tracking file (markdown checklist) and the current state of the
 ## When to Use
 
 - As the first step in each iteration of an autonomous development loop
-- When you need structured task prioritisation from a flat checklist
+- When you need structured task prioritization from a flat checklist
 - Any workflow where the AI must decide what to work on next based on current project state
 
 ## Inputs

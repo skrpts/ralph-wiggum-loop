@@ -3,7 +3,7 @@ id: "65e9ba39-7fe9-4481-ad78-f7cd03c4fe33"
 name: "ralph-wiggum-loop"
 display_name: "Ralph Wiggum Loop"
 description: "Autonomous development loop — pick a task, implement, test, commit, repeat until done"
-version: "1.0.22"
+version: "1.0.23"
 engine: ">=0.1.0"
 
 # --- Attribution ---
@@ -27,8 +27,8 @@ tags:
 dependencies:
   - id: "fcab9536-a13e-49c9-b0c3-bb3097682e69"
     name: "llm-service"
-    version: 1.0.1
-    checksum: "sha256:455c8bf590a9426d830bffd1a741afa058149bc29c58186c34d0d8699bea4bda"
+    version: 1.0.3
+    checksum: "sha256:18783015383c041de9c3fdaa191b79172ab534348448c20c74f9a967ab4dd917"
 
 requires:
   services:
@@ -53,7 +53,7 @@ contents:
 
 security:
   status: "pass"
-  scanned_at: "2026-07-03T15:58:51.356Z"
+  scanned_at: "2026-07-16T20:28:25.539Z"
   scanner_version: "3.3.0"
   syntactic: "pass"
   structural: "pass"
